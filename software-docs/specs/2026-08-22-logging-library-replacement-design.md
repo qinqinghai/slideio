@@ -13,8 +13,9 @@ pinned at `glog/0.7.1`, its final release. The upstream README directs users to
 `ng-log` (community fork, API-compatible) or Abseil Logging (Google-maintained).
 
 An archived dependency is not an emergency, but it is a SOUP item that will
-never receive another security or correctness fix — a reason to do this
-deliberately rather than opportunistically.
+never receive another security or correctness fix. See §9 for the regulatory
+consequences, which are the reason to do this deliberately rather than
+opportunistically.
 
 ## 2. Current state
 
@@ -467,7 +468,10 @@ and write a line to stderr thread-safely — roughly 80–120 lines. That remove
 SOUP item outright and adds zero transitive dependencies. It trades
 SOUP-qualification burden for IEC 62304 §5.5 unit-verification burden on
 first-party code, and we would own any future need (file sinks, rotation,
-redaction)..
+redaction). Whether the trade is favourable depends on the per-SOUP-item cost at
+Jacobian, which this design does not attempt to judge. **Recommend confirming
+with GRC before implementation begins.** The seam keeps the decision reversible
+at low cost either way.
 
 ## 6. Implementation scope
 
@@ -502,7 +506,8 @@ redaction)..
 
 **Not in scope:** named per-module loggers, file or rotating sinks, structured
 output, source-location capture beyond `file:line`, PHI redaction, and any change
-to the 234 call sites. Each is a separate decision.
+to the 234 call sites. Each is a separate decision; §10 records why redaction in
+particular deserves its own discussion.
 
 ## 7. Testing
 
@@ -576,9 +581,41 @@ To record in `software-docs/BREAKING_CHANGES.md` under `v2.10.0`:
   silent. The `WARNING: Logging before InitGoogleLogging()` banner no longer
   appears.
 
-## 9. Open questions
+## 9. Regulatory considerations
 
-1. **Library choice** — spdlog (default) versus in-house.
+Flagged for GRC / Regulatory Affairs review, not resolved here:
+
+- **SOUP change.** glog is a SOUP item under IEC 62304. Replacing it requires
+  updating the SOUP list, performing the anomaly and version evaluation for the
+  replacement, and re-validating. This plausibly constitutes a design change
+  requiring QMS documentation under ISO 13485 design controls. The exact
+  classification at Jacobian should be confirmed before implementation, not
+  after.
+- **The in-house option changes the burden rather than removing it** — fewer SOUP
+  items, more §5.5 unit verification on first-party code. §5 leaves this open
+  pending GRC input.
+- **Do not treat any clause or control reference in this document as
+  authoritative.** The IEC 62304 and ISO 13485 references are the author's
+  understanding and should be verified with Regulatory Affairs.
+- Route questions to security@jacobian.com per organisation policy.
+
+## 10. Out of scope, but noted: PHI in logs
+
+Existing messages include slide file paths and scene names — `converter.cpp:33`
+logs a scene name and a source file path, for instance. In a clinical deployment
+those can carry patient identifiers, and the INFO level is verbose (159 sites).
+
+This is **pre-existing behaviour that the change neither introduces nor
+worsens**, and it is deliberately excluded from scope so the migration stays
+mechanical and reviewable. It is recorded because a logging migration is the
+natural moment to decide whether the sink should be redaction-aware, and because
+the §4.3 seam makes adding a redaction hook a single-file change later. Worth
+raising with GRC alongside the SOUP review.
+
+## 11. Open questions
+
+1. **Library choice** — spdlog (default) versus in-house, pending the
+   per-SOUP-item cost from GRC (§5).
 2. **Branch timing** — `v2.10.0` is a release branch, and this is a cross-cutting
    build change touching 27 `CMakeLists.txt` and 25 `conanfile.txt`. "Archived"
    is not "urgent"; deferring to a `master` cycle may carry less release risk.
