@@ -12,7 +12,8 @@
 #include <fstream>
 #include <filesystem>
 #include <iterator>
-#include "single_tests/jp2k/jp2_memory.hpp"
+#include <mutex>
+#include "jp2kmem.hpp"
 
 /* opj_* Helper code from https://groups.google.com/forum/#!topic/openjpeg/8cebr0u7JgY */
 
@@ -30,6 +31,24 @@ static void openjpeg_error(const char* msg, void* client_data)
 static void openjpeg_info(const char* msg, void* client_data)
 {
     SLIDEIO_LOG(INFO) << msg;
+}
+
+static void setupJp2kDecoderThreads(opj_codec_t* codec)
+{
+    if (!opj_has_thread_support()) {
+        static std::once_flag once;
+        std::call_once(once, [] {
+            SLIDEIO_LOG(WARNING) << "OpenJPEG was built without thread support; JPEG2000 decode is single-threaded";
+        });
+        return;
+    }
+    const int n = opj_get_num_cpus();
+    if (n <= 1) {
+        return;
+    }
+    if (!opj_codec_set_threads(codec, n)) {
+        RAISE_RUNTIME_ERROR << "Failed to set OpenJPEG decoder threads: " << n;
+    }
 }
 
 
@@ -120,6 +139,7 @@ void slideio::ImageTools::decodeJp2KStream(const uint8_t* data, size_t dataSize,
         if (!opj_setup_decoder(codec, &jp2dParams)) {
             throw std::runtime_error("Cannot setup codec");
         }
+        setupJp2kDecoderThreads(codec);
         if (!opj_read_header(stream, codec, &image) || (image->numcomps == 0)) {
             throw std::runtime_error("Error reading image header");
         }
@@ -233,6 +253,7 @@ void slideio::ImageTools::readJp2KStremHeader(const uint8_t* data, size_t dataSi
         if (!opj_setup_decoder(codec, &jp2dParams)) {
             throw std::runtime_error("Cannot setup codec");
         }
+        setupJp2kDecoderThreads(codec);
         if (!opj_read_header(stream, codec, &image) || (image->numcomps == 0)) {
             throw std::runtime_error("Error reading image header");
         }
