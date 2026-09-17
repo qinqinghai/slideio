@@ -1,16 +1,7 @@
 #include <cstring>
-#include <openjpeg.h>
+#include "jp2kmem.hpp"
 
 // These routines are added to use memory instead of a file for input and output.
-//Structure need to treat memory as a stream.
-
-typedef struct
-
-{
-    OPJ_UINT8* pData; //Our data.
-    OPJ_SIZE_T dataSize; //How big is our data.
-    OPJ_SIZE_T offset; //Where are we currently in our data.
-} opj_memory_stream;
 
 //This will read from our memory to the buffer.
 
