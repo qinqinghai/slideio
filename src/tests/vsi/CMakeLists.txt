@@ -42,6 +42,6 @@ IF(WIN32)
 ENDIF(WIN32)
 
 
-add_test(${TEST_NAME} ${TEST_DIR}/${TEST_NAME})
+slideio_add_test(${TEST_NAME} ${TEST_DIR}/${TEST_NAME})
 
 FIX_MACOS_RPATH(${TEST_NAME})

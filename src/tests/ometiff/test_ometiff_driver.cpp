@@ -505,6 +505,7 @@ TEST_F(OTImageDriverTests, readBlockZStackSlices) {
 		TestTools::getTestImagePath("ometiff", "Tests/page_30.tif"),
     	TestTools::getTestImagePath("ometiff", "Tests/page_31.tif"),
 	};
+	SLIDEIO_SKIP_IF_IMAGE_MISSING(sliceFiles.front());
 	slideio::ometiff::OTImageDriver driver;
 	std::shared_ptr<CVSlide> slide = driver.openFile(filePath);
 	ASSERT_TRUE(slide != nullptr);
@@ -549,6 +550,8 @@ TEST_F(OTImageDriverTests, readBlock4DMultifile) {
 		TestTools::getTestImagePath("ometiff", "Tests/tubhiswt4D-C1-T22-Z5.tif"),
 		TestTools::getTestImagePath("ometiff", "Tests/tubhiswt4D-C1-T23-Z5.tif"),
 	};
+	SLIDEIO_SKIP_IF_IMAGE_MISSING(sliceFiles.front());
+	SLIDEIO_SKIP_IF_IMAGE_MISSING(frameFiles.front());
 	OTImageDriver driver;
 	std::shared_ptr<CVSlide> slide = driver.openFile(filePath);
 	ASSERT_TRUE(slide != nullptr);
