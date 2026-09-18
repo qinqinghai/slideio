@@ -5,6 +5,10 @@
 
 #include "slideio/core/exceptions.hpp"
 #include "slideio/core/imagedriver.hpp"
+#if defined(SLIDEIO_PROFILE_VSI)
+#include "slideio/drivers/vsi/vsiimagedriver.hpp"
+#include "slideio/drivers/ome-tiff/otimagedriver.hpp"
+#else
 #include "slideio/drivers/afi/afiimagedriver.hpp"
 #include "slideio/drivers/czi/cziimagedriver.hpp"
 #include "slideio/drivers/dcm/dcmimagedriver.hpp"
@@ -17,6 +21,7 @@
 #include "slideio/drivers/vsi/vsiimagedriver.hpp"
 #include "slideio/drivers/pke/pkeimagedriver.hpp"
 #include "slideio/drivers/ome-tiff/otimagedriver.hpp"
+#endif
 #include "slideio/core/log.hpp"
 #include "slideio/imagetools/tiffmessagehandler.hpp"
 
@@ -65,6 +70,16 @@ void ImageDriverManager::initialize()
     {
         SLIDEIO_LOG(INFO) << "Initialization ImageDriverManager";
         installTiffMessageHandlers();
+#if defined(SLIDEIO_PROFILE_VSI)
+        {
+            std::shared_ptr<ImageDriver> driver { std::make_shared<VSIImageDriver>() };
+            driverMap[driver->getID()] = driver;
+        }
+        {
+            std::shared_ptr<ImageDriver> driver { std::make_shared<ometiff::OTImageDriver>() };
+            driverMap[driver->getID()] = driver;
+        }
+#else
         {
             std::shared_ptr<ImageDriver> driver { std::make_shared<ometiff::OTImageDriver>() };
             driverMap[driver->getID()] = driver;
@@ -113,6 +128,7 @@ void ImageDriverManager::initialize()
             auto driver = std::make_shared<GDALImageDriver>();
             driverMap[driver->getID()] = driver;
         }
+#endif
     }
 }
 

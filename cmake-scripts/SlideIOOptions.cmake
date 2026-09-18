@@ -1,0 +1,62 @@
+# FULL = upstream Conan build; VSI = prefix/openenv, VSI + OME-TIFF only.
+set(SLIDEIO_BUILD_PROFILE "FULL" CACHE STRING "SlideIO build profile: FULL or VSI")
+set_property(CACHE SLIDEIO_BUILD_PROFILE PROPERTY STRINGS FULL VSI)
+
+string(TOUPPER "${SLIDEIO_BUILD_PROFILE}" _profile)
+if(_profile STREQUAL "VSI")
+    set(SLIDEIO_PROFILE_VSI TRUE)
+    option(BUILD_TESTING "Build VSI-profile GoogleTest suites" ON)
+elseif(_profile STREQUAL "FULL")
+    set(SLIDEIO_PROFILE_VSI FALSE)
+else()
+    message(FATAL_ERROR "SLIDEIO_BUILD_PROFILE must be FULL or VSI")
+endif()
+
+foreach(_var IN ITEMS SLIDEIO_IMAGES_PATH SLIDEIO_TEST_DATA_PATH)
+    if(NOT ${_var} AND DEFINED ENV{${_var}})
+        set(${_var} "$ENV{${_var}}" CACHE PATH "")
+    endif()
+endforeach()
+
+function(slideio_set_build_rpath origin)
+    set(_rpath "${origin}")
+    foreach(_prefix IN LISTS CMAKE_PREFIX_PATH CMAKE_INSTALL_PREFIX)
+        if(_prefix AND EXISTS "${_prefix}/lib")
+            list(APPEND _rpath "${_prefix}/lib")
+        endif()
+    endforeach()
+    set(CMAKE_BUILD_RPATH "${_rpath}" PARENT_SCOPE)
+endfunction()
+
+function(slideio_set_install_rpath target)
+    get_target_property(_type ${target} TYPE)
+    if(APPLE)
+        if(_type STREQUAL "EXECUTABLE")
+            set_target_properties(${target} PROPERTIES INSTALL_RPATH "@loader_path/../lib")
+        else()
+            set_target_properties(${target} PROPERTIES INSTALL_RPATH "@loader_path")
+        endif()
+    elseif(UNIX)
+        if(_type STREQUAL "EXECUTABLE")
+            set_target_properties(${target} PROPERTIES INSTALL_RPATH "$ORIGIN/../lib")
+        else()
+            set_target_properties(${target} PROPERTIES INSTALL_RPATH "$ORIGIN")
+        endif()
+    endif()
+endfunction()
+
+# Same signature as add_test(<name> <command>). On VSI, also sets the image
+# corpus ENVIRONMENT. Must be called from the same directory as the test
+# (set_tests_properties cannot see add_test() from a parent).
+function(slideio_add_test name command)
+    add_test(${name} ${command})
+    if(SLIDEIO_PROFILE_VSI AND SLIDEIO_IMAGES_PATH AND IS_DIRECTORY "${SLIDEIO_IMAGES_PATH}")
+        set(_env
+            "SLIDEIO_IMAGES_PATH=${SLIDEIO_IMAGES_PATH}"
+            "SLIDEIO_SKIP_MISSING_IMAGES=1")
+        if(SLIDEIO_TEST_DATA_PATH)
+            list(APPEND _env "SLIDEIO_TEST_DATA_PATH=${SLIDEIO_TEST_DATA_PATH}")
+        endif()
+        set_tests_properties(${name} PROPERTIES ENVIRONMENT "${_env}")
+    endif()
+endfunction()

@@ -31,6 +31,14 @@ target_link_libraries(${LIBRARY_NAME}
 
 SOURCE_GROUP_BY_FOLDER(SOURCE_FILES)
 
+if(SLIDEIO_PROFILE_VSI)
+target_link_libraries(${LIBRARY_NAME} 
+   ${CORE_LIB_NAME}
+   ${IMAGETOOLS_LIB_NAME}
+   ${VSI_DRIVER_NAME}
+   ${OMETIFF_DRIVER_NAME}
+   )
+else()
 target_link_libraries(${LIBRARY_NAME} 
    ${CORE_LIB_NAME}
    ${IMAGETOOLS_LIB_NAME}
@@ -46,6 +54,7 @@ target_link_libraries(${LIBRARY_NAME}
    ${PKE_DRIVER_NAME}
    ${OMETIFF_DRIVER_NAME}
    )
+endif()
 
 IF(WIN32)
    target_link_libraries(${LIBRARY_NAME} Shlwapi)

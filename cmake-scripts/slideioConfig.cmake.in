@@ -40,7 +40,7 @@ endif()
 # Module name -> installed library base name. The drivers are deliberately
 # absent: they are load-time linked into the slideio library rather than
 # dlopen'd, so they are shipped and loaded but never named by a consumer.
-set(_slideio_components slideio core imagetools converter transformer)
+set(_slideio_components @SLIDEIO_PACKAGE_COMPONENTS@)
 set(_slideio_libname_slideio     "slideio")
 set(_slideio_libname_core        "slideio-core")
 set(_slideio_libname_imagetools  "slideio-imagetools")
@@ -109,10 +109,14 @@ endforeach()
 # library on its link line without asking for it.
 set_property(TARGET slideio::slideio APPEND PROPERTY
     INTERFACE_LINK_LIBRARIES slideio::core)
+if(TARGET slideio::converter)
 set_property(TARGET slideio::converter APPEND PROPERTY
     INTERFACE_LINK_LIBRARIES slideio::slideio slideio::core)
+endif()
+if(TARGET slideio::transformer)
 set_property(TARGET slideio::transformer APPEND PROPERTY
     INTERFACE_LINK_LIBRARIES slideio::slideio slideio::core slideio::imagetools)
+endif()
 
 set(slideio_INCLUDE_DIRS "${_slideio_incdir}")
 set(slideio_LIBRARIES slideio::slideio)

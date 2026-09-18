@@ -37,6 +37,9 @@ set(SOURCE_FILES
    ${CMAKE_CURRENT_SOURCE_DIR}/icctransform.hpp
    ${CMAKE_CURRENT_SOURCE_DIR}/icctransform.cpp
 )
+if(SLIDEIO_PROFILE_VSI)
+    list(REMOVE_ITEM SOURCE_FILES ${CMAKE_CURRENT_SOURCE_DIR}/jxrcodec.cpp)
+endif()
 
 add_library(${LIBRARY_NAME} SHARED ${SOURCE_FILES})
 HIDE_THIRD_PARTY_SYMBOLS(${LIBRARY_NAME})
@@ -51,12 +54,15 @@ find_package(ZLIB)
 find_package(JPEG)
 find_package(WebP)
 find_package(nlohmann_json REQUIRED)
-find_package(jxrlib REQUIRED)
-find_package(lcms REQUIRED)
+if(NOT SLIDEIO_PROFILE_VSI)
+    find_package(jxrlib REQUIRED)
+endif()
+if(NOT TARGET lcms::lcms)
+    find_package(lcms REQUIRED)
+endif()
 
 target_link_libraries(${LIBRARY_NAME} PUBLIC
    opencv::opencv
-   jxrcodec
    freeimage::freeimage
    openjp2
    PNG::PNG
@@ -65,8 +71,13 @@ target_link_libraries(${LIBRARY_NAME} PUBLIC
    JPEG::JPEG
    libwebp::libwebp
    nlohmann_json::nlohmann_json
-   jxrlib::jxrlib
 )
+if(NOT SLIDEIO_PROFILE_VSI)
+    target_link_libraries(${LIBRARY_NAME} PUBLIC
+       jxrcodec
+       jxrlib::jxrlib
+    )
+endif()
 
 # PRIVATE: lcms2 is visible only to icctransform.cpp, never to a consumer of
 # this library -- see the class comment on IccTransform.
