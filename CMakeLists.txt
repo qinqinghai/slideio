@@ -438,6 +438,8 @@ install(TARGETS ${SLIDEIO_ALL_LIBS}
 # The command line tools
 # ---------------------------------------------------------------------------
 
+if(NOT SLIDEIO_PROFILE_VSI)
+
 set(SLIDEIO_TOOLS converter tiffinspector)
 
 # The tools sit in bin/ while the shared libraries sit in lib/, so the
@@ -475,6 +477,8 @@ install(PROGRAMS $<TARGET_FILE:tiffinspector>
         DESTINATION bin
         COMPONENT Tools
         RENAME slideio-tiffinspector${CMAKE_EXECUTABLE_SUFFIX})
+
+endif()
 
 # Debug symbols. Release is what gets distributed, so it is the configuration
 # that matters here; Debug keeps the behaviour it always had.
