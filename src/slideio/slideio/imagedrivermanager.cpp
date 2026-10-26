@@ -7,6 +7,7 @@
 #include "slideio/core/imagedriver.hpp"
 #if defined(SLIDEIO_PROFILE_VSI)
 #include "slideio/drivers/vsi/vsiimagedriver.hpp"
+#include "slideio/drivers/incell/incellimagedriver.hpp"
 #include "slideio/drivers/ome-tiff/otimagedriver.hpp"
 #else
 #include "slideio/drivers/afi/afiimagedriver.hpp"
@@ -21,6 +22,7 @@
 #include "slideio/drivers/vsi/vsiimagedriver.hpp"
 #include "slideio/drivers/pke/pkeimagedriver.hpp"
 #include "slideio/drivers/ome-tiff/otimagedriver.hpp"
+#include "slideio/drivers/incell/incellimagedriver.hpp"
 #endif
 #include "slideio/core/log.hpp"
 #include "slideio/imagetools/tiffmessagehandler.hpp"
@@ -51,7 +53,7 @@ std::vector<std::string> ImageDriverManager::getDriverIDs()
 std::shared_ptr<slideio::ImageDriver> ImageDriverManager::findDriver(const std::string& filePath)
 {
     initialize();
-    std::string driverOrder[] = { "OMETIFF", "SVS", "CZI", "AFI", "SCN", "DCM", "ZVI", "NDPI", "VSI", "QPTIFF", "PHTIFF", "GDAL" };
+    std::string driverOrder[] = { "OMETIFF", "SVS", "CZI", "AFI", "SCN", "DCM", "ZVI", "NDPI", "VSI", "INCELL", "QPTIFF", "PHTIFF", "GDAL" };
     for (const auto& driverID : driverOrder) {
         auto itDriver = driverMap.find(driverID);
         if (itDriver != driverMap.end()) {
@@ -73,6 +75,10 @@ void ImageDriverManager::initialize()
 #if defined(SLIDEIO_PROFILE_VSI)
         {
             std::shared_ptr<ImageDriver> driver { std::make_shared<VSIImageDriver>() };
+            driverMap[driver->getID()] = driver;
+        }
+        {
+            std::shared_ptr<ImageDriver> driver { std::make_shared<incell::InCellImageDriver>() };
             driverMap[driver->getID()] = driver;
         }
         {
@@ -118,6 +124,10 @@ void ImageDriverManager::initialize()
         }
         {
             std::shared_ptr<ImageDriver> driver { std::make_shared<VSIImageDriver>() };
+            driverMap[driver->getID()] = driver;
+        }
+        {
+            std::shared_ptr<ImageDriver> driver { std::make_shared<incell::InCellImageDriver>() };
             driverMap[driver->getID()] = driver;
         }
         {

@@ -42,6 +42,7 @@ target_link_libraries(${LIBRARY_NAME}
    ${CORE_LIB_NAME}
    ${IMAGETOOLS_LIB_NAME}
    ${VSI_DRIVER_NAME}
+   ${INCELL_DRIVER_NAME}
    ${OMETIFF_DRIVER_NAME}
    )
 else()
@@ -57,6 +58,7 @@ target_link_libraries(${LIBRARY_NAME}
    ${ZVI_DRIVER_NAME}
    ${NDPI_DRIVER_NAME}
    ${VSI_DRIVER_NAME}
+   ${INCELL_DRIVER_NAME}
    ${PKE_DRIVER_NAME}
    ${OMETIFF_DRIVER_NAME}
    )

@@ -99,6 +99,7 @@ set(SCN_DRIVER_NAME "${LIB_NAME_PREFIX}scn")
 set(ZVI_DRIVER_NAME "${LIB_NAME_PREFIX}zvi")
 set(NDPI_DRIVER_NAME "${LIB_NAME_PREFIX}ndpi")
 set(VSI_DRIVER_NAME "${LIB_NAME_PREFIX}vsi")
+set(INCELL_DRIVER_NAME "${LIB_NAME_PREFIX}incell")
 set(OMETIFF_DRIVER_NAME "${LIB_NAME_PREFIX}ometiff")
 set(TEST_LIB_NAME "${LIB_NAME_PREFIX}test-lib")
 set(CONVERTER_LIB_NAME "${LIB_NAME_PREFIX}converter")
@@ -118,6 +119,7 @@ set(NAME_TOOL_LIB_LIST
     "lib${NDPI_DRIVER_NAME}.dylib"
     "lib${VSI_DRIVER_NAME}.dylib"
     "lib${PKE_DRIVER_NAME}.dylib"
+    "lib${INCELL_DRIVER_NAME}.dylib"
     "lib${OMETIFF_DRIVER_NAME}.dylib"
     "lib${IMAGETOOLS_LIB_NAME}.dylib"
     "lib${CONVERTER_LIB_NAME}.dylib"
@@ -365,6 +367,7 @@ set(SLIDEIO_DRIVER_LIBS
     ${ZVI_DRIVER_NAME}
     ${NDPI_DRIVER_NAME}
     ${VSI_DRIVER_NAME}
+    ${INCELL_DRIVER_NAME}
     ${OMETIFF_DRIVER_NAME}
 )
 if(SLIDEIO_PROFILE_VSI)
@@ -375,6 +378,7 @@ if(SLIDEIO_PROFILE_VSI)
     )
     set(SLIDEIO_DRIVER_LIBS
         ${VSI_DRIVER_NAME}
+        ${INCELL_DRIVER_NAME}
         ${OMETIFF_DRIVER_NAME}
     )
 endif()
@@ -392,6 +396,7 @@ if(SLIDEIO_PROFILE_VSI)
         # gtest_main / ENVIRONMENT are wired in src/tests/{vsi,ometiff}/CMakeLists.txt
         # (set_tests_properties only sees add_test() from the same directory).
         target_link_libraries(slideio_vsi_tests gtest::gtest_main)
+        target_link_libraries(slideio_incell_tests gtest::gtest_main)
         target_link_libraries(slideio_ometiff_tests gtest::gtest_main)
     endif()
 endif()

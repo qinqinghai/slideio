@@ -1,4 +1,4 @@
-# FULL = upstream Conan build; VSI = prefix/openenv, VSI + OME-TIFF only.
+# FULL = upstream Conan build; VSI = prefix/openenv, VSI + OME-TIFF + INCELL.
 set(SLIDEIO_BUILD_PROFILE "FULL" CACHE STRING "SlideIO build profile: FULL or VSI")
 set_property(CACHE SLIDEIO_BUILD_PROFILE PROPERTY STRINGS FULL VSI)
 
