@@ -1,4 +1,4 @@
-# VSI/openenv only. Find prefix packages and alias them to the Conan target
+# PREFIX/openenv only. Find prefix packages and alias them to the Conan target
 # names the module CMakeLists files already link.
 
 function(slideio_alias_if_missing dest src)

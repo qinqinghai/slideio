@@ -16,10 +16,12 @@ SOURCE_GROUP_BY_FOLDER(SOURCE_FILES)
 
 find_package(OpenCV)
 find_package(tinyxml2)
+find_package(nlohmann_json REQUIRED)
 
 target_link_libraries(${LIBRARY_NAME}
   opencv::opencv
   tinyxml2::tinyxml2
+  nlohmann_json::nlohmann_json
 )
 
 target_link_libraries(${LIBRARY_NAME} ${CORE_LIB_NAME} ${IMAGETOOLS_LIB_NAME})

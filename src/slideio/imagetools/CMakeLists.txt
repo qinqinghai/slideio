@@ -37,7 +37,7 @@ set(SOURCE_FILES
    ${CMAKE_CURRENT_SOURCE_DIR}/icctransform.hpp
    ${CMAKE_CURRENT_SOURCE_DIR}/icctransform.cpp
 )
-if(SLIDEIO_PROFILE_VSI)
+if(NOT SLIDEIO_PROFILE_FULL)
     list(REMOVE_ITEM SOURCE_FILES ${CMAKE_CURRENT_SOURCE_DIR}/jxrcodec.cpp)
 endif()
 
@@ -54,7 +54,7 @@ find_package(ZLIB)
 find_package(JPEG)
 find_package(WebP)
 find_package(nlohmann_json REQUIRED)
-if(NOT SLIDEIO_PROFILE_VSI)
+if(SLIDEIO_PROFILE_FULL)
     find_package(jxrlib REQUIRED)
 endif()
 if(NOT TARGET lcms::lcms)
@@ -72,7 +72,7 @@ target_link_libraries(${LIBRARY_NAME} PUBLIC
    libwebp::libwebp
    nlohmann_json::nlohmann_json
 )
-if(NOT SLIDEIO_PROFILE_VSI)
+if(SLIDEIO_PROFILE_FULL)
     target_link_libraries(${LIBRARY_NAME} PUBLIC
        jxrcodec
        jxrlib::jxrlib

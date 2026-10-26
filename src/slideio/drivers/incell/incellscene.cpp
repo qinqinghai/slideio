@@ -30,6 +30,9 @@ InCellScene::InCellScene(InCellSceneData data) : data_(std::move(data)), driver_
         if (channel.emission_nm > 0.0) {
             setChannelAttribute(c, "EmissionWavelength", channel.emission_nm);
         }
+        if (channel.excitation_nm > 0.0) {
+            setChannelAttribute(c, "ExcitationWavelength", channel.excitation_nm);
+        }
     }
 }
 

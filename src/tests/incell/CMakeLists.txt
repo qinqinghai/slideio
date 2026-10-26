@@ -15,6 +15,7 @@ target_link_libraries(${TEST_NAME}
    ${CORE_LIB_NAME}
    ${INCELL_DRIVER_NAME}
    ${IMAGETOOLS_LIB_NAME}
+   ${TEST_LIB_NAME}
    ${SLIDEIO_LIB_NAME}
 )
 

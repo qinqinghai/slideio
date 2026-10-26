@@ -163,7 +163,7 @@ IF(APPLE)
     endif()
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
     add_compile_definitions(_FILE_OFFSET_BITS=64)
-    if(SLIDEIO_PROFILE_VSI)
+    if(NOT SLIDEIO_PROFILE_FULL)
     set(CMAKE_MACOSX_RPATH ON)
     set(CMAKE_BUILD_WITH_INSTALL_RPATH OFF)
     set(CMAKE_BUILD_RPATH_USE_ORIGIN ON)
@@ -174,7 +174,7 @@ IF(APPLE)
     endif()
 ELSEIF(UNIX)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -static-libstdc++")
-    if(SLIDEIO_PROFILE_VSI)
+    if(NOT SLIDEIO_PROFILE_FULL)
     set(CMAKE_BUILD_WITH_INSTALL_RPATH OFF)
     set(CMAKE_BUILD_RPATH_USE_ORIGIN ON)
     slideio_set_build_rpath("$ORIGIN")
@@ -264,7 +264,7 @@ FUNCTION(HIDE_THIRD_PARTY_SYMBOLS target)
     endif()
 ENDFUNCTION(HIDE_THIRD_PARTY_SYMBOLS)
 
-if(NOT SLIDEIO_PROFILE_VSI)
+if(SLIDEIO_PROFILE_FULL)
 # jpegxrcodec: our own JPEG XR codec, built from the extern/jpegxrcodec
 # submodule instead of being pulled in as the jpegxrcodec/1.0.3@slideio/stable
 # conan package. Same sources -- the conan recipe only cloned this repository
@@ -322,7 +322,7 @@ set_target_properties(pole PROPERTIES
     ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/extern/pole/lib)
 endif()
 
-if(SLIDEIO_PROFILE_VSI)
+if(NOT SLIDEIO_PROFILE_FULL)
     include("${CMAKE_CURRENT_SOURCE_DIR}/cmake-scripts/SlideIODependencies.cmake")
 endif()
 
@@ -352,42 +352,58 @@ set(SLIDEIO_PUBLIC_LIBS
     ${SLIDEIO_LIB_NAME}
     ${CORE_LIB_NAME}
     ${IMAGETOOLS_LIB_NAME}
-    ${CONVERTER_LIB_NAME}
-    ${TRANSFORMER_LIB_NAME}
 )
+if(SLIDEIO_PROFILE_FULL)
+    list(APPEND SLIDEIO_PUBLIC_LIBS
+        ${CONVERTER_LIB_NAME}
+        ${TRANSFORMER_LIB_NAME}
+    )
+endif()
 
-set(SLIDEIO_DRIVER_LIBS
-    ${GDAL_DRIVER_NAME}
-    ${SVS_DRIVER_NAME}
-    ${PKE_DRIVER_NAME}
-    ${AFI_DRIVER_NAME}
-    ${CZI_DRIVER_NAME}
-    ${DCM_DRIVER_NAME}
-    ${SCN_DRIVER_NAME}
-    ${ZVI_DRIVER_NAME}
-    ${NDPI_DRIVER_NAME}
-    ${VSI_DRIVER_NAME}
-    ${INCELL_DRIVER_NAME}
-    ${OMETIFF_DRIVER_NAME}
-)
-if(SLIDEIO_PROFILE_VSI)
-    set(SLIDEIO_PUBLIC_LIBS
-        ${SLIDEIO_LIB_NAME}
-        ${CORE_LIB_NAME}
-        ${IMAGETOOLS_LIB_NAME}
+set(SLIDEIO_DRIVER_LIBS)
+if(SLIDEIO_PROFILE_FULL)
+    list(APPEND SLIDEIO_DRIVER_LIBS
+        ${GDAL_DRIVER_NAME}
+        ${SVS_DRIVER_NAME}
+        ${PKE_DRIVER_NAME}
+        ${AFI_DRIVER_NAME}
+        ${CZI_DRIVER_NAME}
+        ${DCM_DRIVER_NAME}
+        ${SCN_DRIVER_NAME}
+        ${ZVI_DRIVER_NAME}
+        ${NDPI_DRIVER_NAME}
     )
-    set(SLIDEIO_DRIVER_LIBS
-        ${VSI_DRIVER_NAME}
-        ${INCELL_DRIVER_NAME}
-        ${OMETIFF_DRIVER_NAME}
-    )
+endif()
+if(SLIDEIO_BUILD_VSI)
+    list(APPEND SLIDEIO_DRIVER_LIBS ${VSI_DRIVER_NAME})
+endif()
+if(SLIDEIO_BUILD_INCELL)
+    list(APPEND SLIDEIO_DRIVER_LIBS ${INCELL_DRIVER_NAME})
+endif()
+if(SLIDEIO_BUILD_OMETIFF)
+    list(APPEND SLIDEIO_DRIVER_LIBS ${OMETIFF_DRIVER_NAME})
 endif()
 
 set(SLIDEIO_ALL_LIBS ${SLIDEIO_PUBLIC_LIBS} ${SLIDEIO_DRIVER_LIBS})
 
-if(SLIDEIO_PROFILE_VSI)
-    target_compile_definitions(${CORE_LIB_NAME} PRIVATE SLIDEIO_PROFILE_VSI)
-    target_compile_definitions(${SLIDEIO_LIB_NAME} PRIVATE SLIDEIO_PROFILE_VSI)
+if(SLIDEIO_PROFILE_FULL)
+    target_compile_definitions(${CORE_LIB_NAME} PRIVATE SLIDEIO_PROFILE_FULL)
+    target_compile_definitions(${SLIDEIO_LIB_NAME} PRIVATE SLIDEIO_PROFILE_FULL)
+endif()
+if(SLIDEIO_BUILD_VSI)
+    target_compile_definitions(${CORE_LIB_NAME} PRIVATE SLIDEIO_BUILD_VSI)
+    target_compile_definitions(${SLIDEIO_LIB_NAME} PRIVATE SLIDEIO_BUILD_VSI)
+endif()
+if(SLIDEIO_BUILD_INCELL)
+    target_compile_definitions(${CORE_LIB_NAME} PRIVATE SLIDEIO_BUILD_INCELL)
+    target_compile_definitions(${SLIDEIO_LIB_NAME} PRIVATE SLIDEIO_BUILD_INCELL)
+endif()
+if(SLIDEIO_BUILD_OMETIFF)
+    target_compile_definitions(${CORE_LIB_NAME} PRIVATE SLIDEIO_BUILD_OMETIFF)
+    target_compile_definitions(${SLIDEIO_LIB_NAME} PRIVATE SLIDEIO_BUILD_OMETIFF)
+endif()
+
+if(NOT SLIDEIO_PROFILE_FULL)
     foreach(_target IN LISTS SLIDEIO_ALL_LIBS)
         slideio_set_install_rpath(${_target})
     endforeach()
@@ -395,9 +411,15 @@ if(SLIDEIO_PROFILE_VSI)
     if(BUILD_TESTING)
         # gtest_main / ENVIRONMENT are wired in src/tests/{vsi,ometiff}/CMakeLists.txt
         # (set_tests_properties only sees add_test() from the same directory).
-        target_link_libraries(slideio_vsi_tests gtest::gtest_main)
-        target_link_libraries(slideio_incell_tests gtest::gtest_main)
-        target_link_libraries(slideio_ometiff_tests gtest::gtest_main)
+        if(SLIDEIO_BUILD_VSI)
+            target_link_libraries(slideio_vsi_tests gtest::gtest_main)
+        endif()
+        if(SLIDEIO_BUILD_INCELL)
+            target_link_libraries(slideio_incell_tests gtest::gtest_main)
+        endif()
+        if(SLIDEIO_BUILD_OMETIFF)
+            target_link_libraries(slideio_ometiff_tests gtest::gtest_main)
+        endif()
     endif()
 endif()
 
@@ -443,7 +465,7 @@ install(TARGETS ${SLIDEIO_ALL_LIBS}
 # The command line tools
 # ---------------------------------------------------------------------------
 
-if(NOT SLIDEIO_PROFILE_VSI)
+if(SLIDEIO_PROFILE_FULL)
 
 set(SLIDEIO_TOOLS converter tiffinspector)
 
@@ -505,7 +527,7 @@ endif()
 # in src/public_headers_check, which builds every one of them the way a consumer
 # of the -dev package would. Adding a header to the public API is a one-line
 # change in the module that owns it; the check then holds it to the contract.
-if(SLIDEIO_PROFILE_VSI)
+if(NOT SLIDEIO_PROFILE_FULL)
     set(SLIDEIO_PUBLIC_HEADER_MODULES core slideio imagetools)
 else()
     set(SLIDEIO_PUBLIC_HEADER_MODULES core slideio imagetools converter transformer)
@@ -533,7 +555,7 @@ add_subdirectory(src/public_headers_check)
 # is hand-written rather than generated by install(EXPORT).
 include(CMakePackageConfigHelpers)
 
-if(SLIDEIO_PROFILE_VSI)
+if(NOT SLIDEIO_PROFILE_FULL)
     set(SLIDEIO_PACKAGE_COMPONENTS slideio core imagetools)
 else()
     set(SLIDEIO_PACKAGE_COMPONENTS slideio core imagetools converter transformer)
@@ -604,6 +626,6 @@ if(NOT SLIDEIO_PLATFORM_TAG)
     set(SLIDEIO_PLATFORM_TAG "${SLIDEIO_PLATFORM_OS}-${SLIDEIO_PLATFORM_ARCH}")
 endif()
 
-if(NOT SLIDEIO_PROFILE_VSI)
+if(SLIDEIO_PROFILE_FULL)
 include(${CMAKE_SOURCE_DIR}/cmake-scripts/packaging.cmake)
 endif()

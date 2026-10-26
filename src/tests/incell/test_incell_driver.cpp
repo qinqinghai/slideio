@@ -3,11 +3,11 @@
 #include <slideio/slideio/scene.hpp>
 #include <slideio/slideio/slide.hpp>
 #include <slideio/slideio/slideio.hpp>
+#include "tests/testlib/testtools.hpp"
 
 #include <opencv2/imgcodecs.hpp>
 
 #include <cstdint>
-#include <cstdlib>
 #include <stdexcept>
 #include <filesystem>
 #include <fstream>
@@ -36,9 +36,15 @@ std::string imageXml(const std::string& file, const std::string& well, int row, 
     std::ostringstream out;
     out.setf(std::ios::fixed);
     out.precision(6);
-    out << "<Image filename=\"" << file << "\" timestamp_sec=\"" << timestamp << "\">"
+    out << "<Image filename=\"" << file << "\" timestamp_sec=\"" << timestamp
+        << "\" acquisition_time_ms=\"100\">"
         << "<Well label=\"" << well << "\"><Row number=\"" << row << "\"/><Column number=\""
         << column << "\"/></Well>"
+        << "<OffsetFromWellCenter unit=\"um\" x=\"-55.874\" y=\"1463.122\"/>"
+        << "<FocusPosition unit=\"um\" z=\"" << (1000.0 + t) << "\"/>"
+        << "<PlatePosition_um x=\"47824.1\" y=\"41276.9\"/>"
+        << "<MinMaxMean max=\"715\" mean=\"253.05\" min=\"185\" sbr=\"1.18\"/>"
+        << "<Exposure time=\"100\" unit=\"ms\"/>"
         << "<Identifier field_index=\"" << field << "\" time_index=\"" << t << "\" wave_index=\""
         << c << "\" z_index=\"" << z << "\"/>"
         << "</Image>";
@@ -53,13 +59,42 @@ void writeXdce(const std::filesystem::path& path, int image_count, const std::st
         << "<Application name=\"IN Cell Analyzer 2200\"/>"
         << "<Creation date=\"2019-07-26\" time=\"13:20:48\" timeZoneOffset=\"36000000\"/>"
         << "<AutoLeadAcquisitionProtocol>"
-        << "<ObjectiveCalibration magnification=\"10\" numerical_aperture=\"0.45\" "
-        << "objective_name=\"Nikon 10X\" pixel_width=\"1.95\" unit=\"um\"/>"
+        << "<Microscopy type=\"Fluorescence\"/>"
+        << "<ObjectiveCalibration focal_length=\"20\" id=\"12111\" lineartype=\"7\" "
+        << "magnification=\"10\" numerical_aperture=\"0.45\" "
+        << "objective_name=\"Nikon 10X\" pixel_height=\"1.95\" pixel_width=\"1.95\" "
+        << "refractive_index=\"1\" sac_collar=\"0\" unit=\"um\" "
+        << "x_shift=\"0\" y_shift=\"0\" z_shift=\"0\"/>"
+        << "<Polychroic id=\"Y\" name=\"QUAD1\"/>"
+        << "<Camera name=\"Test Camera\" version=\"1.0\" apply_ffc=\"false\" use_ffc=\"false\">"
+        << "<Binning value=\"3 X 3\"/><Bias value=\"100\"/><Gain value=\"1\"/>"
+        << "<Size height=\"2048\" width=\"2048\"/><ROI columns=\"-1\" rows=\"-1\"/>"
+        << "</Camera>"
+        << "<SoftwareAutoFocus enabled=\"false\" focus_channel=\"first\" init_stepping=\"0\" "
+        << "max_search_range=\"5000\" min_stepping=\"1\" mode_type=\"Adaptive\" mode_value=\"Small\" "
+        << "refocusEachTimePoint=\"false\" show_live_image=\"false\" skip_field=\"1\" skip_well=\"1\"/>"
+        << "<LaserAutoFocus enabled=\"true\" power_level=\"0.08\"/>"
         << "<Wavelengths>"
-        << "<Wavelength index=\"0\" name=\"DAPI\"><EmissionFilter wavelength=\"435\"/></Wavelength>"
-        << "<Wavelength index=\"1\" name=\"FITC\"><EmissionFilter wavelength=\"511\"/></Wavelength>"
+        << "<Wavelength index=\"0\" name=\"DAPI\" imaging_mode=\"2-D\">"
+        << "<ExcitationFilter name=\"DAPI\" wavelength=\"390\"/>"
+        << "<EmissionFilter name=\"DAPI\" wavelength=\"435\"/>"
+        << "<Exposure time=\"100\" unit=\"ms\"/>"
+        << "</Wavelength>"
+        << "<Wavelength index=\"1\" name=\"FITC\" imaging_mode=\"2-D\">"
+        << "<ExcitationFilter name=\"FITC\" wavelength=\"475\"/>"
+        << "<EmissionFilter name=\"FITC\" wavelength=\"511\"/>"
+        << "<Exposure time=\"200\" unit=\"ms\"/>"
+        << "</Wavelength>"
         << "</Wavelengths>"
+        << "<TimeSchedule mode=\"spit and stare\" time_unit=\"sec\">"
+        << "<Waves>"
+        << "<Wave emission_filter=\"DAPI\" excitation_filter=\"DAPI\" id=\"1\" "
+           "optical_z_sectioning=\"0\"/>"
+        << "<Wave emission_filter=\"FITC\" excitation_filter=\"FITC\" id=\"2\" "
+           "optical_z_sectioning=\"0\"/>"
+        << "</Waves>"
         << "<Times><TimePoint index=\"0\" ms=\"0\"/><TimePoint index=\"1\" ms=\"2000\"/></Times>"
+        << "</TimeSchedule>"
         << "</AutoLeadAcquisitionProtocol>"
         << extra
         << "<Images number=\"" << image_count << "\">" << images << "</Images>"
@@ -112,8 +147,21 @@ TEST(InCellDriver, ReadsDenseGridAndIgnoresXmlOrder) {
     EXPECT_TRUE(scene->hasPlaneTimestamps());
     EXPECT_EQ(scene->getAcquisitionTime(), 100);
     EXPECT_NEAR(scene->getPlaneTimestamp(0, 1, 0), 0.35, 1e-6);
-    EXPECT_NE(slide->getRawMetadata().find("\"ObjectiveName\":\"Nikon 10X\""), std::string::npos);
+    EXPECT_NE(slide->getRawMetadata().find("\"Objective Name\""), std::string::npos);
+    EXPECT_NE(slide->getRawMetadata().find("Nikon 10X"), std::string::npos);
+    EXPECT_NE(slide->getRawMetadata().find("\"Creation time\""), std::string::npos);
     EXPECT_NE(slide->getRawMetadata().find("2019-07-26T13:20:48+10:00"), std::string::npos);
+    EXPECT_NE(slide->getRawMetadata().find("\"Wavelengths\""), std::string::npos);
+    EXPECT_NE(slide->getRawMetadata().find("\"Emission Wavelength\""), std::string::npos);
+    EXPECT_NE(slide->getRawMetadata().find("\"Acquisition waves\""), std::string::npos);
+    EXPECT_NE(slide->getRawMetadata().find("\"Microscopy\""), std::string::npos);
+    EXPECT_NE(slide->getRawMetadata().find("Fluorescence"), std::string::npos);
+    EXPECT_NE(slide->getRawMetadata().find("\"Focal Length\""), std::string::npos);
+    EXPECT_NE(slide->getRawMetadata().find("QUAD1"), std::string::npos);
+    EXPECT_NE(slide->getRawMetadata().find("\"Camera\""), std::string::npos);
+    EXPECT_NE(slide->getRawMetadata().find("3 X 3"), std::string::npos);
+    EXPECT_NE(slide->getRawMetadata().find("\"Software autofocus\""), std::string::npos);
+    EXPECT_NE(slide->getRawMetadata().find("\"Laser autofocus\""), std::string::npos);
 
     std::uint16_t pixel = 0;
     scene->read4DBlockChannels({0, 0, 1, 1}, {1}, {1, 2}, {1, 2}, &pixel, sizeof(pixel));
@@ -175,20 +223,12 @@ TEST(InCellDriver, RejectsSymlinkEscape) {
 }
 
 TEST(InCellDriver, ReadsRealFixture) {
-    const char* fixture = std::getenv("STC_INCELL_FIXTURE");
-    ASSERT_TRUE(fixture && *fixture) << "STC_INCELL_FIXTURE must point at the T8 x C4 fixture";
-    const auto xdce = std::filesystem::path(fixture);
-    std::filesystem::path file = xdce;
-    if (std::filesystem::is_directory(xdce)) {
-        file.clear();
-        for (const auto& entry : std::filesystem::directory_iterator(xdce)) {
-            if (entry.path().extension() == ".xdce") {
-                file = entry.path();
-            }
-        }
-    }
+    const std::string file = TestTools::getTestImagePath(
+        "incell", "sample-2018-06-04-1/Sample 2018-06-04-1_1.xdce");
+    SLIDEIO_SKIP_IF_IMAGE_MISSING(file);
     ASSERT_TRUE(std::filesystem::is_regular_file(file)) << file;
-    const auto scene = openOrThrow(file)->getScene(0);
+    const auto slide = openOrThrow(file);
+    const auto scene = slide->getScene(0);
     EXPECT_EQ(std::get<2>(scene->getRect()), 682);
     EXPECT_EQ(std::get<3>(scene->getRect()), 682);
     EXPECT_EQ(scene->getNumChannels(), 4);
@@ -200,4 +240,9 @@ TEST(InCellDriver, ReadsRealFixture) {
     std::uint16_t pixel = 0;
     EXPECT_NO_THROW(
         scene->read4DBlockChannels({0, 0, 1, 1}, {0}, {0, 1}, {0, 1}, &pixel, sizeof(pixel)));
+    const auto& metadata = slide->getRawMetadata();
+    EXPECT_NE(metadata.find("Fluorescence"), std::string::npos);
+    EXPECT_NE(metadata.find("QUAD1"), std::string::npos);
+    EXPECT_NE(metadata.find("\"Laser autofocus\""), std::string::npos);
+    EXPECT_NE(metadata.find("Nikon 10X/0.45, Plan Apo, CFI/60"), std::string::npos);
 }

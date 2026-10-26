@@ -37,31 +37,31 @@ target_link_libraries(${LIBRARY_NAME}
 
 SOURCE_GROUP_BY_FOLDER(SOURCE_FILES)
 
-if(SLIDEIO_PROFILE_VSI)
-target_link_libraries(${LIBRARY_NAME} 
+target_link_libraries(${LIBRARY_NAME}
    ${CORE_LIB_NAME}
    ${IMAGETOOLS_LIB_NAME}
-   ${VSI_DRIVER_NAME}
-   ${INCELL_DRIVER_NAME}
-   ${OMETIFF_DRIVER_NAME}
-   )
-else()
-target_link_libraries(${LIBRARY_NAME} 
-   ${CORE_LIB_NAME}
-   ${IMAGETOOLS_LIB_NAME}
+)
+if(SLIDEIO_PROFILE_FULL)
+target_link_libraries(${LIBRARY_NAME}
    ${GDAL_DRIVER_NAME}
    ${SVS_DRIVER_NAME}
+   ${PKE_DRIVER_NAME}
    ${AFI_DRIVER_NAME}
    ${CZI_DRIVER_NAME}
    ${DCM_DRIVER_NAME}
    ${SCN_DRIVER_NAME}
    ${ZVI_DRIVER_NAME}
    ${NDPI_DRIVER_NAME}
-   ${VSI_DRIVER_NAME}
-   ${INCELL_DRIVER_NAME}
-   ${PKE_DRIVER_NAME}
-   ${OMETIFF_DRIVER_NAME}
-   )
+)
+endif()
+if(SLIDEIO_BUILD_VSI)
+target_link_libraries(${LIBRARY_NAME} ${VSI_DRIVER_NAME})
+endif()
+if(SLIDEIO_BUILD_INCELL)
+target_link_libraries(${LIBRARY_NAME} ${INCELL_DRIVER_NAME})
+endif()
+if(SLIDEIO_BUILD_OMETIFF)
+target_link_libraries(${LIBRARY_NAME} ${OMETIFF_DRIVER_NAME})
 endif()
 
 IF(WIN32)

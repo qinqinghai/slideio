@@ -1,15 +1,54 @@
-# FULL = upstream Conan build; VSI = prefix/openenv, VSI + OME-TIFF + INCELL.
-set(SLIDEIO_BUILD_PROFILE "FULL" CACHE STRING "SlideIO build profile: FULL or VSI")
-set_property(CACHE SLIDEIO_BUILD_PROFILE PROPERTY STRINGS FULL VSI)
+# FULL = upstream Conan build, every driver.
+# PREFIX = prefix/openenv. SLIDEIO_DRIVERS selects any of VSI, INCELL, OMETIFF.
+set(SLIDEIO_BUILD_PROFILE "FULL" CACHE STRING "SlideIO build profile: FULL or PREFIX")
+set_property(CACHE SLIDEIO_BUILD_PROFILE PROPERTY STRINGS FULL PREFIX)
+set(SLIDEIO_DRIVERS "" CACHE STRING "PREFIX drivers: any of VSI, INCELL, OMETIFF")
 
 string(TOUPPER "${SLIDEIO_BUILD_PROFILE}" _profile)
-if(_profile STREQUAL "VSI")
-    set(SLIDEIO_PROFILE_VSI TRUE)
-    option(BUILD_TESTING "Build VSI-profile GoogleTest suites" ON)
-elseif(_profile STREQUAL "FULL")
-    set(SLIDEIO_PROFILE_VSI FALSE)
+if(_profile STREQUAL "FULL")
+    set(SLIDEIO_PROFILE_FULL TRUE)
+elseif(_profile STREQUAL "PREFIX")
+    set(SLIDEIO_PROFILE_FULL FALSE)
+    option(BUILD_TESTING "Build PREFIX-profile GoogleTest suites" ON)
 else()
-    message(FATAL_ERROR "SLIDEIO_BUILD_PROFILE must be FULL or VSI")
+    message(FATAL_ERROR "SLIDEIO_BUILD_PROFILE must be FULL or PREFIX")
+endif()
+
+set(SLIDEIO_BUILD_VSI FALSE)
+set(SLIDEIO_BUILD_INCELL FALSE)
+set(SLIDEIO_BUILD_OMETIFF FALSE)
+if(SLIDEIO_PROFILE_FULL)
+    if(SLIDEIO_DRIVERS)
+        message(FATAL_ERROR
+            "SLIDEIO_DRIVERS is not valid with SLIDEIO_BUILD_PROFILE=FULL; FULL builds every driver")
+    endif()
+    set(SLIDEIO_BUILD_VSI TRUE)
+    set(SLIDEIO_BUILD_INCELL TRUE)
+    set(SLIDEIO_BUILD_OMETIFF TRUE)
+else()
+    set(_drivers "${SLIDEIO_DRIVERS}")
+    if(NOT _drivers)
+        set(_drivers "VSI;INCELL;OMETIFF")
+    endif()
+    string(TOUPPER "${_drivers}" _drivers)
+    string(REPLACE "," ";" _drivers "${_drivers}")
+    string(REPLACE " " "" _drivers "${_drivers}")
+    string(REPLACE "OME-TIFF" "OMETIFF" _drivers "${_drivers}")
+    string(REGEX REPLACE "^;+|;+$" "" _drivers "${_drivers}")
+    string(REGEX REPLACE ";+" ";" _drivers "${_drivers}")
+    if(NOT _drivers MATCHES "^(VSI|INCELL|OMETIFF)(;(VSI|INCELL|OMETIFF))*$")
+        message(FATAL_ERROR
+            "SLIDEIO_DRIVERS value '${SLIDEIO_DRIVERS}' is not a list of VSI, INCELL, OMETIFF")
+    endif()
+    if(_drivers MATCHES "(^|;)VSI(;|$)")
+        set(SLIDEIO_BUILD_VSI TRUE)
+    endif()
+    if(_drivers MATCHES "(^|;)INCELL(;|$)")
+        set(SLIDEIO_BUILD_INCELL TRUE)
+    endif()
+    if(_drivers MATCHES "(^|;)OMETIFF(;|$)")
+        set(SLIDEIO_BUILD_OMETIFF TRUE)
+    endif()
 endif()
 
 foreach(_var IN ITEMS SLIDEIO_IMAGES_PATH SLIDEIO_TEST_DATA_PATH)
@@ -45,12 +84,12 @@ function(slideio_set_install_rpath target)
     endif()
 endfunction()
 
-# Same signature as add_test(<name> <command>). On VSI, also sets the image
+# Same signature as add_test(<name> <command>). On PREFIX, also sets the image
 # corpus ENVIRONMENT. Must be called from the same directory as the test
 # (set_tests_properties cannot see add_test() from a parent).
 function(slideio_add_test name command)
     add_test(${name} ${command})
-    if(SLIDEIO_PROFILE_VSI AND SLIDEIO_IMAGES_PATH AND IS_DIRECTORY "${SLIDEIO_IMAGES_PATH}")
+    if(NOT SLIDEIO_PROFILE_FULL AND SLIDEIO_IMAGES_PATH AND IS_DIRECTORY "${SLIDEIO_IMAGES_PATH}")
         set(_env
             "SLIDEIO_IMAGES_PATH=${SLIDEIO_IMAGES_PATH}"
             "SLIDEIO_SKIP_MISSING_IMAGES=1")

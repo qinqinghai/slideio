@@ -5,6 +5,7 @@
 #include "slideio/imagetools/tifftools.hpp"
 
 #include <tinyxml2.h>
+#include <nlohmann/json.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -13,9 +14,9 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
-#include <iomanip>
 #include <limits>
 #include <map>
+#include <memory>
 #include <sstream>
 #include <tuple>
 #include <utility>
@@ -32,37 +33,45 @@ constexpr std::size_t kMaxName = 4096;
 
 [[noreturn]] void fail(const std::string& message) { RAISE_RUNTIME_ERROR << message; }
 
-std::string jsonEscape(const std::string& text) {
-    std::string out;
-    out.reserve(text.size());
-    for (unsigned char c : text) {
-        switch (c) {
-            case '"':
-            case '\\':
-                out.push_back('\\');
-                out.push_back(static_cast<char>(c));
-                break;
-            case '\n':
-                out += "\\n";
-                break;
-            case '\r':
-                out += "\\r";
-                break;
-            case '\t':
-                out += "\\t";
-                break;
-            default:
-                if (c < 0x20) {
-                    char buf[8];
-                    std::snprintf(buf, sizeof(buf), "\\u%04x", c);
-                    out += buf;
-                } else {
-                    out.push_back(static_cast<char>(c));
-                }
-                break;
+// Same shape as VSIFile::serializeMetadata: {tag, name, value, secondTag}.
+nlohmann::json metaLeaf(const std::string& name, nlohmann::json value) {
+    return nlohmann::json{{"tag", 0},
+                          {"name", name},
+                          {"value", std::move(value)},
+                          {"secondTag", 0}};
+}
+
+nlohmann::json metaGroup(const std::string& name, nlohmann::json children) {
+    return nlohmann::json{{"tag", 0},
+                          {"name", name},
+                          {"value", std::move(children)},
+                          {"secondTag", 0}};
+}
+
+double parseDouble(const char* text, const char* what);
+
+void pushText(nlohmann::json& fields, const char* label, const char* value) {
+    if (value && *value) {
+        fields.push_back(metaLeaf(label, std::string(value)));
+    }
+}
+
+void pushNumber(nlohmann::json& fields, const char* label, const char* value) {
+    if (value && *value) {
+        fields.push_back(metaLeaf(label, parseDouble(value, label)));
+    }
+}
+
+template <typename T>
+std::shared_ptr<const T> intern(std::vector<std::shared_ptr<const T>>& pool, T value) {
+    for (const auto& existing : pool) {
+        if (*existing == value) {
+            return existing;
         }
     }
-    return out;
+    auto created = std::make_shared<const T>(std::move(value));
+    pool.push_back(created);
+    return created;
 }
 
 std::string asciiLower(std::string text) {
@@ -246,6 +255,13 @@ struct RawImage {
     int c = 0;
     int z = 0;
     double timestamp_sec = 0.0;
+    double acquisition_time_ms = 0.0;
+    std::string excitation_filter;
+    std::string emission_filter;
+    InCellPlaneStats stats;
+    InCellPlaneGeometry geometry;
+    bool has_exposure = false;
+    InCellPlaneExposure exposure;
     std::string well;
 };
 
@@ -341,10 +357,23 @@ std::shared_ptr<CVSlide> openInCell(const std::string& file_path) {
         fail("INCELL XML has no root element");
     }
 
+    struct AcquisitionWave {
+        int id = 0;
+        std::string emission_filter;
+        std::string excitation_filter;
+        int optical_z_sectioning = 0;
+    };
+
     const tinyxml2::XMLElement* calibration = nullptr;
     const tinyxml2::XMLElement* application = nullptr;
     const tinyxml2::XMLElement* creation = nullptr;
+    const tinyxml2::XMLElement* microscopy = nullptr;
+    const tinyxml2::XMLElement* protocol_polychroic = nullptr;
+    const tinyxml2::XMLElement* camera = nullptr;
+    const tinyxml2::XMLElement* software_autofocus = nullptr;
+    const tinyxml2::XMLElement* laser_autofocus = nullptr;
     std::map<int, InCellChannel> channels;
+    std::map<int, AcquisitionWave> acquisition_waves;
     std::map<int, double> time_ms;
     std::vector<RawImage> images;
     int declared_images = -1;
@@ -363,21 +392,79 @@ std::shared_ptr<CVSlide> openInCell(const std::string& file_path) {
                 application = child_element;
             } else if (name == "Creation" && !creation) {
                 creation = child_element;
+            } else if (name == "Microscopy" && !microscopy) {
+                microscopy = child_element;
+            } else if (name == "Polychroic" && !protocol_polychroic) {
+                // Wavelength polychroics are read inside that branch and not visited.
+                protocol_polychroic = child_element;
+            } else if (name == "Camera" && !camera) {
+                camera = child_element;
+            } else if (name == "SoftwareAutoFocus" && !software_autofocus) {
+                software_autofocus = child_element;
+            } else if (name == "LaserAutoFocus" && !laser_autofocus) {
+                laser_autofocus = child_element;
             } else if (name == "Wavelength") {
                 const int index = parseIndex(attr(child_element, "index"), "wavelength index");
                 InCellChannel channel;
                 const char* label = child_element->Attribute("name");
                 channel.name = label && *label ? label : "CH" + std::to_string(index);
+                if (const char* imaging_mode = child_element->Attribute("imaging_mode")) {
+                    channel.imaging_mode = imaging_mode;
+                }
                 if (const auto* emission = child_element->FirstChildElement("EmissionFilter")) {
+                    if (const char* filter = emission->Attribute("name")) {
+                        channel.emission_filter = filter;
+                    }
                     if (const char* wavelength = emission->Attribute("wavelength")) {
                         channel.emission_nm = parseDouble(wavelength, "emission wavelength");
                     }
                 }
+                if (const auto* excitation = child_element->FirstChildElement("ExcitationFilter")) {
+                    if (const char* filter = excitation->Attribute("name")) {
+                        channel.excitation_filter = filter;
+                    }
+                    if (const char* wavelength = excitation->Attribute("wavelength")) {
+                        channel.excitation_nm = parseDouble(wavelength, "excitation wavelength");
+                    }
+                }
+                if (const auto* exposure = child_element->FirstChildElement("Exposure")) {
+                    if (const char* time = exposure->Attribute("time")) {
+                        channel.exposure_ms = parseDouble(time, "exposure time");
+                    }
+                    if (const char* unit = exposure->Attribute("unit")) {
+                        channel.exposure_unit = unit;
+                    }
+                }
+                if (const auto* polychroic = child_element->FirstChildElement("Polychroic")) {
+                    if (const char* poly_name = polychroic->Attribute("name")) {
+                        channel.polychroic = poly_name;
+                    }
+                }
                 if (channels.count(index) && (channels[index].name != channel.name ||
-                                              channels[index].emission_nm != channel.emission_nm)) {
+                                              channels[index].emission_nm != channel.emission_nm ||
+                                              channels[index].excitation_nm != channel.excitation_nm)) {
                     fail("INCELL wavelength index " + std::to_string(index) + " is duplicated");
                 }
                 channels[index] = std::move(channel);
+            } else if (name == "Wave") {
+                AcquisitionWave wave;
+                wave.id = parseIndex(attr(child_element, "id"), "wave id");
+                if (const char* emission = child_element->Attribute("emission_filter")) {
+                    wave.emission_filter = emission;
+                }
+                if (const char* excitation = child_element->Attribute("excitation_filter")) {
+                    wave.excitation_filter = excitation;
+                }
+                if (const char* z_section = child_element->Attribute("optical_z_sectioning")) {
+                    wave.optical_z_sectioning =
+                        parseIndex(z_section, "optical_z_sectioning");
+                }
+                if (acquisition_waves.count(wave.id) &&
+                    (acquisition_waves[wave.id].emission_filter != wave.emission_filter ||
+                     acquisition_waves[wave.id].excitation_filter != wave.excitation_filter)) {
+                    fail("INCELL wave id " + std::to_string(wave.id) + " is duplicated");
+                }
+                acquisition_waves[wave.id] = std::move(wave);
             } else if (name == "TimePoint") {
                 const int index = parseIndex(attr(child_element, "index"), "time point index");
                 const double ms = parseDouble(attr(child_element, "ms"), "time point ms");
@@ -397,11 +484,83 @@ std::shared_ptr<CVSlide> openInCell(const std::string& file_path) {
                 image.reference = attr(child_element, "filename");
                 // Bio-Formats uses acquisition_time_ms / 1000 as elapsed time. On IN Cell
                 // 2200 that attribute is the exposure duration and does not advance. The
-                // acquisition clock is timestamp_sec.
+                // acquisition clock is timestamp_sec. Store acquisition_time_ms for later
+                // use; never treat it as a timeline.
                 image.timestamp_sec =
                     parseDouble(attr(child_element, "timestamp_sec"), "timestamp_sec");
                 if (image.timestamp_sec < 0.0) {
                     fail("INCELL timestamp_sec is negative: " + image.reference);
+                }
+                if (const char* acquisition_ms = child_element->Attribute("acquisition_time_ms")) {
+                    image.acquisition_time_ms =
+                        parseDouble(acquisition_ms, "acquisition_time_ms");
+                    if (image.acquisition_time_ms < 0.0) {
+                        fail("INCELL acquisition_time_ms is negative: " + image.reference);
+                    }
+                }
+                if (const auto* excitation = child_element->FirstChildElement("ExcitationFilter")) {
+                    if (const char* filter = excitation->Attribute("name")) {
+                        image.excitation_filter = filter;
+                    }
+                }
+                if (const auto* emission = child_element->FirstChildElement("EmissionFilter")) {
+                    if (const char* filter = emission->Attribute("name")) {
+                        image.emission_filter = filter;
+                    }
+                }
+                if (const auto* offset = child_element->FirstChildElement("OffsetFromWellCenter")) {
+                    image.geometry.has_offset = true;
+                    if (const char* x = offset->Attribute("x")) {
+                        image.geometry.offset_x = parseDouble(x, "offset x");
+                    }
+                    if (const char* y = offset->Attribute("y")) {
+                        image.geometry.offset_y = parseDouble(y, "offset y");
+                    }
+                    if (const char* unit = offset->Attribute("unit")) {
+                        image.geometry.offset_unit = unit;
+                    }
+                }
+                if (const auto* focus = child_element->FirstChildElement("FocusPosition")) {
+                    image.geometry.has_focus = true;
+                    if (const char* z = focus->Attribute("z")) {
+                        image.geometry.focus_z = parseDouble(z, "focus z");
+                    }
+                    if (const char* unit = focus->Attribute("unit")) {
+                        image.geometry.focus_unit = unit;
+                    }
+                }
+                if (const auto* plate = child_element->FirstChildElement("PlatePosition_um")) {
+                    image.geometry.has_plate = true;
+                    if (const char* x = plate->Attribute("x")) {
+                        image.geometry.plate_x = parseDouble(x, "plate x");
+                    }
+                    if (const char* y = plate->Attribute("y")) {
+                        image.geometry.plate_y = parseDouble(y, "plate y");
+                    }
+                }
+                if (const auto* exposure = child_element->FirstChildElement("Exposure")) {
+                    image.has_exposure = true;
+                    if (const char* time = exposure->Attribute("time")) {
+                        image.exposure.time = parseDouble(time, "image exposure");
+                    }
+                    if (const char* unit = exposure->Attribute("unit")) {
+                        image.exposure.unit = unit;
+                    }
+                }
+                if (const auto* stats = child_element->FirstChildElement("MinMaxMean")) {
+                    image.stats.present = true;
+                    if (const char* min_value = stats->Attribute("min")) {
+                        image.stats.min_value = parseDouble(min_value, "min");
+                    }
+                    if (const char* max_value = stats->Attribute("max")) {
+                        image.stats.max_value = parseDouble(max_value, "max");
+                    }
+                    if (const char* mean = stats->Attribute("mean")) {
+                        image.stats.mean = parseDouble(mean, "mean");
+                    }
+                    if (const char* sbr = stats->Attribute("sbr")) {
+                        image.stats.sbr = parseDouble(sbr, "sbr");
+                    }
                 }
                 const auto* well = child(child_element, "Well");
                 image.well = attr(well, "label");
@@ -469,6 +628,8 @@ std::shared_ptr<CVSlide> openInCell(const std::string& file_path) {
 
     std::vector<std::shared_ptr<InCellScene>> scenes;
     std::vector<std::pair<std::string, std::filesystem::path>> fingerprint_files;
+    std::vector<std::shared_ptr<const InCellPlaneGeometry>> geometries;
+    std::vector<std::shared_ptr<const InCellPlaneExposure>> exposures;
     std::uint64_t companion_bytes = 0;
     int scene_index = 0;
     for (auto& entry : grouped) {
@@ -511,8 +672,44 @@ std::shared_ptr<CVSlide> openInCell(const std::string& file_path) {
                      image.reference + "'");
             }
             seen[static_cast<std::size_t>(index)] = 1;
-            data.planes[static_cast<std::size_t>(index)] =
-                InCellPlane{image.reference, image.path, image.timestamp_sec};
+            if (image.c >= 0 && image.c < num_c) {
+                auto& channel = data.channels[static_cast<std::size_t>(image.c)];
+                if (!image.excitation_filter.empty()) {
+                    if (!channel.excitation_filter.empty() &&
+                        channel.excitation_filter != image.excitation_filter) {
+                        fail("INCELL Image excitation filter '" + image.excitation_filter +
+                             "' conflicts with wavelength '" + channel.excitation_filter +
+                             "' for " + image.reference);
+                    }
+                    if (channel.excitation_filter.empty()) {
+                        channel.excitation_filter = image.excitation_filter;
+                    }
+                }
+                if (!image.emission_filter.empty()) {
+                    if (!channel.emission_filter.empty() &&
+                        channel.emission_filter != image.emission_filter) {
+                        fail("INCELL Image emission filter '" + image.emission_filter +
+                             "' conflicts with wavelength '" + channel.emission_filter + "' for " +
+                             image.reference);
+                    }
+                    if (channel.emission_filter.empty()) {
+                        channel.emission_filter = image.emission_filter;
+                    }
+                }
+            }
+            InCellPlane plane;
+            plane.reference = image.reference;
+            plane.path = image.path;
+            plane.timestamp_sec = image.timestamp_sec;
+            plane.acquisition_time_ms = image.acquisition_time_ms;
+            plane.stats = image.stats;
+            if (image.geometry.has_offset || image.geometry.has_focus || image.geometry.has_plate) {
+                plane.geometry = intern(geometries, image.geometry);
+            }
+            if (image.has_exposure) {
+                plane.exposure = intern(exposures, image.exposure);
+            }
+            data.planes[static_cast<std::size_t>(index)] = std::move(plane);
             earliest = std::min(earliest, image.timestamp_sec);
         }
         for (int i = 0; i < count; ++i) {
@@ -589,20 +786,162 @@ std::shared_ptr<CVSlide> openInCell(const std::string& file_path) {
     std::sort(fingerprint_files.begin(), fingerprint_files.end(),
               [](const auto& a, const auto& b) { return a.first < b.first; });
     const std::string fingerprint = fingerprintOf(xdce, fingerprint_files);
-    std::ostringstream metadata;
-    metadata << std::setprecision(17)
-             << "{\"derived\":true,\"format\":\"xdce\""
-             << ",\"ObjectiveName\":\"" << jsonEscape(objective ? objective : "") << "\""
-             << ",\"NumericalAperture\":" << numerical_aperture
-             << ",\"Magnification\":" << magnification
-             << ",\"DeviceModel\":\"" << jsonEscape(device ? device : "") << "\""
-             << ",\"DeviceManufacturer\":\"GE Healthcare\""
-             << ",\"CreationTime\":\"" << jsonEscape(creation_time) << "\""
-             << ",\"companion_file_count\":" << fingerprint_files.size()
-             << ",\"companion_bytes\":" << companion_bytes
-             << ",\"dataset_fingerprint\":\"" << fingerprint << "\"}";
+    const std::string device_name = device ? device : "";
+    nlohmann::json children = nlohmann::json::array();
+    children.push_back(metaGroup(
+        "Optical properties",
+        [&] {
+            nlohmann::json fields = nlohmann::json::array(
+                {metaLeaf("Objective Name", objective ? objective : ""),
+                 metaLeaf("Magnification", magnification),
+                 metaLeaf("Numerical Aperture", numerical_aperture)});
+            pushNumber(fields, "Focal Length", calibration->Attribute("focal_length"));
+            pushText(fields, "Objective ID", calibration->Attribute("id"));
+            pushNumber(fields, "Linear Type", calibration->Attribute("lineartype"));
+            pushNumber(fields, "Pixel Width", calibration->Attribute("pixel_width"));
+            pushNumber(fields, "Pixel Height", calibration->Attribute("pixel_height"));
+            pushNumber(fields, "Refractive Index", calibration->Attribute("refractive_index"));
+            pushNumber(fields, "SAC Collar", calibration->Attribute("sac_collar"));
+            pushText(fields, "Unit", calibration->Attribute("unit"));
+            pushNumber(fields, "X Shift", calibration->Attribute("x_shift"));
+            pushNumber(fields, "Y Shift", calibration->Attribute("y_shift"));
+            pushNumber(fields, "Z Shift", calibration->Attribute("z_shift"));
+            return fields;
+        }()));
+    if (microscopy) {
+        nlohmann::json fields = nlohmann::json::array();
+        pushText(fields, "Type", microscopy->Attribute("type"));
+        if (!fields.empty()) {
+            children.push_back(metaGroup("Microscopy", std::move(fields)));
+        }
+    }
+    if (protocol_polychroic) {
+        nlohmann::json fields = nlohmann::json::array();
+        pushText(fields, "ID", protocol_polychroic->Attribute("id"));
+        pushText(fields, "Name", protocol_polychroic->Attribute("name"));
+        if (!fields.empty()) {
+            children.push_back(metaGroup("Polychroic", std::move(fields)));
+        }
+    }
+    if (camera) {
+        nlohmann::json fields = nlohmann::json::array();
+        pushText(fields, "Name", camera->Attribute("name"));
+        pushText(fields, "Version", camera->Attribute("version"));
+        pushText(fields, "Apply FFC", camera->Attribute("apply_ffc"));
+        pushText(fields, "Use FFC", camera->Attribute("use_ffc"));
+        if (const auto* binning = camera->FirstChildElement("Binning")) {
+            pushText(fields, "Binning", binning->Attribute("value"));
+        }
+        if (const auto* bias = camera->FirstChildElement("Bias")) {
+            pushNumber(fields, "Bias", bias->Attribute("value"));
+        }
+        if (const auto* gain = camera->FirstChildElement("Gain")) {
+            pushNumber(fields, "Gain", gain->Attribute("value"));
+        }
+        if (const auto* size = camera->FirstChildElement("Size")) {
+            pushNumber(fields, "Width", size->Attribute("width"));
+            pushNumber(fields, "Height", size->Attribute("height"));
+        }
+        if (const auto* roi = camera->FirstChildElement("ROI")) {
+            pushNumber(fields, "ROI Columns", roi->Attribute("columns"));
+            pushNumber(fields, "ROI Rows", roi->Attribute("rows"));
+        }
+        if (!fields.empty()) {
+            children.push_back(metaGroup("Camera", std::move(fields)));
+        }
+    }
+    if (software_autofocus) {
+        nlohmann::json fields = nlohmann::json::array();
+        pushText(fields, "Enabled", software_autofocus->Attribute("enabled"));
+        pushText(fields, "Focus Channel", software_autofocus->Attribute("focus_channel"));
+        pushText(fields, "Mode Type", software_autofocus->Attribute("mode_type"));
+        pushText(fields, "Mode Value", software_autofocus->Attribute("mode_value"));
+        pushNumber(fields, "Initial Stepping", software_autofocus->Attribute("init_stepping"));
+        pushNumber(fields, "Minimum Stepping", software_autofocus->Attribute("min_stepping"));
+        pushNumber(fields, "Maximum Search Range", software_autofocus->Attribute("max_search_range"));
+        pushText(fields, "Refocus Each Time Point",
+                 software_autofocus->Attribute("refocusEachTimePoint"));
+        pushText(fields, "Show Live Image", software_autofocus->Attribute("show_live_image"));
+        pushNumber(fields, "Skip Field", software_autofocus->Attribute("skip_field"));
+        pushNumber(fields, "Skip Well", software_autofocus->Attribute("skip_well"));
+        if (!fields.empty()) {
+            children.push_back(metaGroup("Software autofocus", std::move(fields)));
+        }
+    }
+    if (laser_autofocus) {
+        nlohmann::json fields = nlohmann::json::array();
+        pushText(fields, "Enabled", laser_autofocus->Attribute("enabled"));
+        pushNumber(fields, "Power Level", laser_autofocus->Attribute("power_level"));
+        if (!fields.empty()) {
+            children.push_back(metaGroup("Laser autofocus", std::move(fields)));
+        }
+    }
+    children.push_back(metaGroup(
+        "Device",
+        nlohmann::json::array({metaLeaf("Device Model", device_name),
+                               metaLeaf("Device Name", device_name),
+                               metaLeaf("Device Manufacturer", "GE Healthcare"),
+                               metaLeaf("Device Subtype", 0)})));
+    if (!creation_time.empty()) {
+        children.push_back(metaLeaf("Creation time", creation_time));
+    }
+    if (!channels.empty()) {
+        nlohmann::json wavelength_nodes = nlohmann::json::array();
+        for (const auto& entry : channels) {
+            const int index = entry.first;
+            const InCellChannel& channel = entry.second;
+            nlohmann::json fields = nlohmann::json::array(
+                {metaLeaf("Index", index), metaLeaf("Name", channel.name)});
+            if (!channel.excitation_filter.empty()) {
+                fields.push_back(metaLeaf("Excitation Filter", channel.excitation_filter));
+            }
+            if (channel.excitation_nm > 0.0) {
+                fields.push_back(metaLeaf("Excitation Wavelength", channel.excitation_nm));
+            }
+            if (!channel.emission_filter.empty()) {
+                fields.push_back(metaLeaf("Emission Filter", channel.emission_filter));
+            }
+            if (channel.emission_nm > 0.0) {
+                fields.push_back(metaLeaf("Emission Wavelength", channel.emission_nm));
+            }
+            if (channel.exposure_ms > 0.0) {
+                fields.push_back(metaLeaf("Exposure", channel.exposure_ms));
+            }
+            if (!channel.exposure_unit.empty()) {
+                fields.push_back(metaLeaf("Exposure Unit", channel.exposure_unit));
+            }
+            if (!channel.polychroic.empty()) {
+                fields.push_back(metaLeaf("Polychroic", channel.polychroic));
+            }
+            if (!channel.imaging_mode.empty()) {
+                fields.push_back(metaLeaf("Imaging Mode", channel.imaging_mode));
+            }
+            wavelength_nodes.push_back(metaGroup("Wavelength", std::move(fields)));
+        }
+        children.push_back(metaGroup("Wavelengths", std::move(wavelength_nodes)));
+    }
+    if (!acquisition_waves.empty()) {
+        nlohmann::json wave_nodes = nlohmann::json::array();
+        for (const auto& entry : acquisition_waves) {
+            const AcquisitionWave& wave = entry.second;
+            wave_nodes.push_back(metaGroup(
+                "Wave",
+                nlohmann::json::array(
+                    {metaLeaf("ID", wave.id), metaLeaf("Excitation Filter", wave.excitation_filter),
+                     metaLeaf("Emission Filter", wave.emission_filter),
+                     metaLeaf("Optical Z Sectioning", wave.optical_z_sectioning)})));
+        }
+        children.push_back(metaGroup("Acquisition waves", std::move(wave_nodes)));
+    }
+    children.push_back(metaLeaf("companion_file_count",
+                                static_cast<std::int64_t>(fingerprint_files.size())));
+    children.push_back(metaLeaf("companion_bytes", static_cast<std::uint64_t>(companion_bytes)));
+    children.push_back(metaLeaf("dataset_fingerprint", fingerprint));
+    children.push_back(metaLeaf("format", "xdce"));
 
-    return std::make_shared<InCellSlide>(file_path, metadata.str(), std::move(scenes));
+    const nlohmann::json metadata =
+        metaGroup("IN Cell", std::move(children));
+    return std::make_shared<InCellSlide>(file_path, metadata.dump(), std::move(scenes));
 }
 
 }  // namespace
