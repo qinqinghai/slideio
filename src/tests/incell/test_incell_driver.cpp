@@ -242,7 +242,7 @@ TEST(InCellDriver, RejectsSymlinkEscape) {
 
 TEST(InCellDriver, ReadsRealFixture) {
     const std::string file = TestTools::getTestImagePath(
-        "incell", "sample-2018-06-04-1/Sample 2018-06-04-1_1.xdce");
+        "incell", "incell-analyzer-2200-1/fluorescence-4c-8frame.xdce");
     SLIDEIO_SKIP_IF_IMAGE_MISSING(file);
     ASSERT_TRUE(std::filesystem::is_regular_file(file)) << file;
     const auto slide = openOrThrow(file);
@@ -265,4 +265,7 @@ TEST(InCellDriver, ReadsRealFixture) {
     EXPECT_NE(metadata.find("Nikon 10X/0.45, Plan Apo, CFI/60"), std::string::npos);
     EXPECT_NE(metadata.find("3×3 merged, 2048×2048 sensor"), std::string::npos);
     EXPECT_EQ(metadata.find("Unknown - Unknown, 3"), std::string::npos);
+    EXPECT_NE(metadata.find("cd7e8a9a-4e49-4b45-9a74-29bc4f4a329d"), std::string::npos);
+    EXPECT_NE(metadata.find("\"dataset_uuid\""), std::string::npos);
+    EXPECT_NE(metadata.find("\"companion_bytes\""), std::string::npos);
 }

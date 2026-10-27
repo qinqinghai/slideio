@@ -474,6 +474,7 @@ std::shared_ptr<CVSlide> openInCell(const std::string& file_path) {
     const tinyxml2::XMLElement* camera = nullptr;
     const tinyxml2::XMLElement* software_autofocus = nullptr;
     const tinyxml2::XMLElement* laser_autofocus = nullptr;
+    std::string dataset_uuid;
     std::map<int, InCellChannel> channels;
     std::map<int, AcquisitionWave> acquisition_waves;
     std::map<int, double> time_ms;
@@ -485,7 +486,11 @@ std::shared_ptr<CVSlide> openInCell(const std::string& file_path) {
         for (const auto* child_element = element->FirstChildElement(); child_element;
              child_element = child_element->NextSiblingElement()) {
             const std::string name = child_element->Name();
-            if (name == "ObjectiveCalibration") {
+            if (name == "UUID" && dataset_uuid.empty()) {
+                if (const char* value = child_element->Attribute("value")) {
+                    dataset_uuid = value;
+                }
+            } else if (name == "ObjectiveCalibration") {
                 if (calibration &&
                     metersFromCalibration(calibration) != metersFromCalibration(child_element)) {
                     fail("INCELL contains conflicting ObjectiveCalibration values");
@@ -920,7 +925,15 @@ std::shared_ptr<CVSlide> openInCell(const std::string& file_path) {
     std::sort(fingerprint_files.begin(), fingerprint_files.end(),
               [](const auto& a, const auto& b) { return a.first < b.first; });
     const std::string fingerprint = fingerprintOf(xdce, fingerprint_files);
+    {
+        // Project size = manifest + every companion TIFF referenced by the scenes.
+        std::error_code ec;
+        companion_bytes += std::filesystem::file_size(xdce, ec);
+    }
     nlohmann::json children = nlohmann::json::array();
+    if (!dataset_uuid.empty()) {
+        children.push_back(metaLeaf("dataset_uuid", dataset_uuid));
+    }
     children.push_back(metaGroup(
         "Optical properties",
         [&] {
