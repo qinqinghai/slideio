@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <limits>
@@ -60,6 +61,107 @@ void pushNumber(nlohmann::json& fields, const char* label, const char* value) {
     if (value && *value) {
         fields.push_back(metaLeaf(label, parseDouble(value, label)));
     }
+}
+
+void appendPart(std::string& line, const std::string& part) {
+    if (part.empty()) {
+        return;
+    }
+    if (!line.empty()) {
+        line += ", ";
+    }
+    line += part;
+}
+
+std::string formatWhole(double value) {
+    if (std::abs(value - std::round(value)) < 1e-6) {
+        return std::to_string(static_cast<long long>(std::llround(value)));
+    }
+    std::ostringstream out;
+    out << value;
+    return out.str();
+}
+
+bool parseFactor(const char*& text, double& value) {
+    while (*text == ' ') {
+        ++text;
+    }
+    char* end = nullptr;
+    value = std::strtod(text, &end);
+    if (end == text || !std::isfinite(value) || value <= 0.0) {
+        return false;
+    }
+    text = end;
+    return true;
+}
+
+// "3 X 3" → "3×3 merged". 1×1 is the unbinned sensor, so it adds nothing.
+std::string formatBinning(const char* text) {
+    if (!text || !*text) {
+        return {};
+    }
+    const char* cursor = text;
+    double across = 0.0;
+    double down = 0.0;
+    if (!parseFactor(cursor, across)) {
+        return {};
+    }
+    while (*cursor == ' ') {
+        ++cursor;
+    }
+    if (*cursor == 'X' || *cursor == 'x') {
+        ++cursor;
+    } else if (static_cast<unsigned char>(cursor[0]) == 0xC3 &&
+               static_cast<unsigned char>(cursor[1]) == 0x97) {
+        cursor += 2;
+    } else {
+        return {};
+    }
+    if (!parseFactor(cursor, down)) {
+        return {};
+    }
+    while (*cursor == ' ') {
+        ++cursor;
+    }
+    if (*cursor != '\0') {
+        return {};
+    }
+    if (std::abs(across - 1.0) < 1e-6 && std::abs(down - 1.0) < 1e-6) {
+        return {};
+    }
+    return formatWhole(across) + "×" + formatWhole(down) + " merged";
+}
+
+std::string formatSensor(const char* width_text, const char* height_text) {
+    if (!width_text || !*width_text || !height_text || !*height_text) {
+        return {};
+    }
+    const char* width_cursor = width_text;
+    const char* height_cursor = height_text;
+    double width = 0.0;
+    double height = 0.0;
+    if (!parseFactor(width_cursor, width) || *width_cursor != '\0' ||
+        !parseFactor(height_cursor, height) || *height_cursor != '\0') {
+        return {};
+    }
+    return formatWhole(width) + "×" + formatWhole(height) + " sensor";
+}
+
+// Printed camera line: a real name, then how many sensor pixels become one output pixel,
+// then the sensor size. "Unknown - Unknown" is a placeholder and is left out.
+std::string cameraLine(const tinyxml2::XMLElement* camera) {
+    std::string line;
+    if (const char* name = camera->Attribute("name"); name && *name &&
+                                                         std::strcmp(name, "Unknown - Unknown") != 0) {
+        line = name;
+    }
+    if (const auto* binning = camera->FirstChildElement("Binning")) {
+        appendPart(line, formatBinning(binning->Attribute("value")));
+    }
+    if (const auto* size = camera->FirstChildElement("Size")) {
+        appendPart(line, formatSensor(size->Attribute("width"), size->Attribute("height")));
+    }
+    return line;
 }
 
 template <typename T>
@@ -611,7 +713,9 @@ std::shared_ptr<CVSlide> openInCell(const std::string& file_path) {
             ? parseDouble(attr(calibration, "numerical_aperture"), "numerical_aperture")
             : 0.0;
     const char* objective = calibration->Attribute("objective_name");
-    const char* device = application ? application->Attribute("name") : nullptr;
+    // <Application name> is the instrument. <Camera name> is the camera.
+    // Device is the slot VSI uses for the camera. Its model is the printed line:
+    // a real name, "<n>×<n> merged", and "<w>×<h> sensor".
     std::string creation_time;
     if (creation && creation->Attribute("date") && creation->Attribute("time")) {
         creation_time = std::string(creation->Attribute("date")) + "T" + creation->Attribute("time");
@@ -786,7 +890,6 @@ std::shared_ptr<CVSlide> openInCell(const std::string& file_path) {
     std::sort(fingerprint_files.begin(), fingerprint_files.end(),
               [](const auto& a, const auto& b) { return a.first < b.first; });
     const std::string fingerprint = fingerprintOf(xdce, fingerprint_files);
-    const std::string device_name = device ? device : "";
     nlohmann::json children = nlohmann::json::array();
     children.push_back(metaGroup(
         "Optical properties",
@@ -876,12 +979,22 @@ std::shared_ptr<CVSlide> openInCell(const std::string& file_path) {
             children.push_back(metaGroup("Laser autofocus", std::move(fields)));
         }
     }
-    children.push_back(metaGroup(
-        "Device",
-        nlohmann::json::array({metaLeaf("Device Model", device_name),
-                               metaLeaf("Device Name", device_name),
-                               metaLeaf("Device Manufacturer", "GE Healthcare"),
-                               metaLeaf("Device Subtype", 0)})));
+    if (application) {
+        nlohmann::json fields = nlohmann::json::array();
+        pushText(fields, "Name", application->Attribute("name"));
+        if (!fields.empty()) {
+            children.push_back(metaGroup("Application", std::move(fields)));
+        }
+    }
+    if (camera) {
+        const std::string line = cameraLine(camera);
+        if (!line.empty()) {
+            children.push_back(metaGroup(
+                "Device",
+                nlohmann::json::array({metaLeaf("Device Model", line), metaLeaf("Device Name", line),
+                                       metaLeaf("Device Subtype", 0)})));
+        }
+    }
     if (!creation_time.empty()) {
         children.push_back(metaLeaf("Creation time", creation_time));
     }

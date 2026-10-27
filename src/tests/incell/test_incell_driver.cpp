@@ -158,8 +158,20 @@ TEST(InCellDriver, ReadsDenseGridAndIgnoresXmlOrder) {
     EXPECT_NE(slide->getRawMetadata().find("Fluorescence"), std::string::npos);
     EXPECT_NE(slide->getRawMetadata().find("\"Focal Length\""), std::string::npos);
     EXPECT_NE(slide->getRawMetadata().find("QUAD1"), std::string::npos);
-    EXPECT_NE(slide->getRawMetadata().find("\"Camera\""), std::string::npos);
-    EXPECT_NE(slide->getRawMetadata().find("3 X 3"), std::string::npos);
+    const auto metadata = slide->getRawMetadata();
+    EXPECT_NE(metadata.find("\"Camera\""), std::string::npos);
+    EXPECT_NE(metadata.find("3 X 3"), std::string::npos);
+    EXPECT_NE(metadata.find("\"name\":\"Device Model\",\"secondTag\":0,\"tag\":0,\"value\":\"Test "
+                             "Camera, 3×3 merged, 2048×2048 sensor\""),
+              std::string::npos);
+    EXPECT_EQ(metadata.find(
+                  "\"name\":\"Device Model\",\"secondTag\":0,\"tag\":0,\"value\":\"IN Cell Analyzer 2200\""),
+              std::string::npos);
+    EXPECT_NE(metadata.find("\"name\":\"Name\",\"secondTag\":0,\"tag\":0,\"value\":\"IN Cell Analyzer 2200\""),
+              std::string::npos);
+    EXPECT_EQ(metadata.find("GE Healthcare"), std::string::npos);
+    EXPECT_NE(metadata.find("\"name\":\"Application\""), std::string::npos);
+    EXPECT_NE(metadata.find("IN Cell Analyzer 2200"), std::string::npos);
     EXPECT_NE(slide->getRawMetadata().find("\"Software autofocus\""), std::string::npos);
     EXPECT_NE(slide->getRawMetadata().find("\"Laser autofocus\""), std::string::npos);
 
@@ -245,4 +257,6 @@ TEST(InCellDriver, ReadsRealFixture) {
     EXPECT_NE(metadata.find("QUAD1"), std::string::npos);
     EXPECT_NE(metadata.find("\"Laser autofocus\""), std::string::npos);
     EXPECT_NE(metadata.find("Nikon 10X/0.45, Plan Apo, CFI/60"), std::string::npos);
+    EXPECT_NE(metadata.find("3×3 merged, 2048×2048 sensor"), std::string::npos);
+    EXPECT_EQ(metadata.find("Unknown - Unknown, 3"), std::string::npos);
 }
