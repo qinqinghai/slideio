@@ -217,6 +217,12 @@ TEST(InCellDriver, RejectsIncompleteOrUnsafeDatasets) {
            2, "do not increase");
     expect(imageXml("/tmp/a.tif", "A", 1, 1, 0, 0, 0, 0, 10), 1, "absolute");
     expect(imageXml("../a.tif", "A", 1, 1, 0, 0, 0, 0, 10), 1, "escapes");
+    expect(imageXml("a.tif", "A", 1, 1, 0, 0, 0, 0, 10), 1, "PLATE_SCAN_FINISHED",
+           "<PerformanceEvents>"
+           "<Event time=\"1000\" type=\"PLATE_SCAN_STARTED\"/>"
+           "<Event time=\"2000\" type=\"PLATE_SCAN_TIME_SERIES_T0\"/>"
+           "<Event time=\"1500\" type=\"PLATE_SCAN_FINISHED\"/>"
+           "</PerformanceEvents>");
 }
 
 TEST(InCellDriver, RejectsSymlinkEscape) {

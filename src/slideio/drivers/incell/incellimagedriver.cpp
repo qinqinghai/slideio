@@ -477,6 +477,7 @@ std::shared_ptr<CVSlide> openInCell(const std::string& file_path) {
     std::map<int, InCellChannel> channels;
     std::map<int, AcquisitionWave> acquisition_waves;
     std::map<int, double> time_ms;
+    std::vector<std::pair<std::string, double>> performance_events;
     std::vector<RawImage> images;
     int declared_images = -1;
 
@@ -574,6 +575,14 @@ std::shared_ptr<CVSlide> openInCell(const std::string& file_path) {
                     fail("INCELL time point " + std::to_string(index) + " is duplicated");
                 }
                 time_ms[index] = ms;
+            } else if (name == "Event") {
+                // PerformanceEvents absolute epoch ms. FINISHED must be after every other
+                // event when present (catches cropped fixtures that leave the original end).
+                const char* type = child_element->Attribute("type");
+                const char* time = child_element->Attribute("time");
+                if (type && *type && time) {
+                    performance_events.emplace_back(type, parseDouble(time, "PerformanceEvent time"));
+                }
             } else if (name == "Images") {
                 const int number = parseIndex(attr(child_element, "number"), "Images number");
                 declared_images = declared_images < 0 ? number : declared_images + number;
@@ -690,6 +699,27 @@ std::shared_ptr<CVSlide> openInCell(const std::string& file_path) {
     if (declared_images != static_cast<int>(images.size())) {
         fail("INCELL Images number is " + std::to_string(declared_images) + " but " +
              std::to_string(images.size()) + " Image records were found");
+    }
+    {
+        bool have_finished = false;
+        double finished_ms = 0.0;
+        double max_other_ms = -std::numeric_limits<double>::infinity();
+        bool have_other = false;
+        for (const auto& event : performance_events) {
+            if (event.first == "PLATE_SCAN_FINISHED") {
+                if (have_finished) {
+                    fail("INCELL PerformanceEvents has duplicate PLATE_SCAN_FINISHED");
+                }
+                have_finished = true;
+                finished_ms = event.second;
+            } else {
+                have_other = true;
+                max_other_ms = std::max(max_other_ms, event.second);
+            }
+        }
+        if (have_finished && have_other && finished_ms <= max_other_ms) {
+            fail("INCELL PLATE_SCAN_FINISHED must be after all other PerformanceEvents");
+        }
     }
 
     const std::filesystem::path root_dir = xdce.parent_path();
